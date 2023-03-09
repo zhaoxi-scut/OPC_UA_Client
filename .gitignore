@@ -1,0 +1,14 @@
+# Compiling files
+build*
+
+# Configuration files
+CMakeLists.txt.user
+
+# Media files
+*.avi
+*.mp4
+
+# Image
+*.png
+*.jpg
+*.jpeg
