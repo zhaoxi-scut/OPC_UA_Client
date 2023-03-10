@@ -122,8 +122,16 @@ void imageChange(UA_Client *client, UA_UInt32 subId, void *subContext, UA_UInt32
 void ClientUI::initSignalSlots()
 {
     //! 设备选取按钮
-    connect(ui->radio_camera, &QRadioButton::clicked, this, [this]() { __device_type = DeviceType::CAMERA; });
-    connect(ui->radio_light, &QRadioButton::clicked, this, [this]() { __device_type = DeviceType::LIGHT; });
+    connect(ui->radio_camera, &QRadioButton::clicked, this,
+            [this]()
+    {
+        __device_type = DeviceType::CAMERA;
+    });
+    connect(ui->radio_light, &QRadioButton::clicked, this,
+            [this]()
+    {
+        __device_type = DeviceType::LIGHT;
+    });
 
     //! 扫描
     connect(ui->button_scan, &QPushButton::clicked, this,
@@ -205,7 +213,18 @@ void ClientUI::initSignalSlots()
             }
             log(LogType::Success, "Subscribe successfully.");
         }
-        ui->edit_device_index->setText();
+        ui->edit_device_index->setText(target_str.c_str());
+
+        UA_NodeId ip_id = client.findNodeId(__target_id, 1, "IP");
+        ua::Variable ip = client.readVariable(ip_id);
+        QString ip_txt = reinterpret_cast<char *>(ip.get().data);
+        ui->edit_device_ip->setText(ip_txt);
+
+        UA_NodeId message_id = client.findNodeId(__target_id, 1, "Message");
+        ua::Variable message = client.readVariable(message_id);
+        QString message_txt = reinterpret_cast<char *>(message.get().data);
+        ui->edit_status_message->setText(message_txt);
+
         if (__device_type == DeviceType::CAMERA) // DeviceType::CAMERA
         {
             UA_NodeId image_id = client.findNodeId(__target_id, 1, "Image");
