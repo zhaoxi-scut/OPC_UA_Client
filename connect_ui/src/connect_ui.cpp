@@ -61,6 +61,7 @@ void ConnectUI::initSignalSlots()
 
                     if (__ua_client->get().connect(address))
                     {
+                        __ua_client->setServerIP(address);
                         UA_NodeId server_id = __ua_client->get().findNodeId(UA_NODEID_NUMERIC(0, UA_NS0ID_OBJECTSFOLDER),
                                                                             1, "VisionServer");
                         __ua_client->setServerID(server_id);

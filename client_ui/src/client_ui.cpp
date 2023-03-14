@@ -17,6 +17,20 @@ ClientUI::ClientUI(client_ptr ua_client, QWidget *parent) :
     initUI();
     // Initialize Signal-slot
     initSignalSlots();
+
+    __iterate_thread = std::thread([this]()
+    {
+        while (true)
+        {
+            std::unique_lock<std::mutex> lk(__mutex);
+            __cond.wait(lk,
+                        [this]()
+            {
+                return __is_image_monitor;
+            });
+            __ua_client->get().runIterate(0);
+        }
+    });
 }
 
 ClientUI::~ClientUI()
@@ -109,14 +123,59 @@ void ClientUI::log(LogType log_type, const QString &str)
     ui->browser_log->append(QString("-- ") + str);
 }
 
-void ClientUI::monitor()
-{
-
-}
-
 void imageChange(UA_Client *client, UA_UInt32 subId, void *subContext, UA_UInt32 monId, void *monContext, UA_DataValue *value)
 {
+    UA_Variant v = value->value;
+    if (v.arrayLength != 640 * 480 * 3)
+        throw v.arrayLength;
+    QImage image = QImage((const uchar *)v.data, 640, 480, 1920, QImage::Format_BGR888);
+    ClientUI::label_image->setPixmap(QPixmap::fromImage(image));
+}
 
+void ClientUI::monitorClear()
+{
+    std::unique_lock<std::mutex> lk(__mutex);
+    // 清除配置
+    __is_image_monitor = false;
+    __target_id = UA_NODEID_NULL;
+    __ua_client->setSubID(0);
+}
+
+void ClientUI::disconnectUI()
+{
+    {
+        std::unique_lock<std::mutex> lk(__mutex);
+        __is_image_monitor = false;
+    }
+    __devices_idx.clear();
+    __device_type = DeviceType::NONE;
+    ui->label_scan_msg->clear();
+    ui->label_sub_msg->clear();
+    ui->combo_box_device->clear();
+    ui->label_image->setText("No Image");
+
+    ui->widget_delay_ch1->setValue(1);
+    ui->widget_delay_ch2->setValue(1);
+    ui->widget_delay_ch3->setValue(1);
+    ui->widget_delay_ch4->setValue(1);
+    ui->widget_exposure->setExposure(0);
+    ui->widget_gain->setGain(0);
+    ui->widget_r_gain->setGain(0);
+    ui->widget_g_gain->setGain(0);
+    ui->widget_b_gain->setGain(0);
+
+    ui->radio_camera->setAutoExclusive(false);
+    ui->radio_camera->setChecked(false);
+    ui->radio_camera->setAutoExclusive(true);
+    ui->radio_light->setAutoExclusive(false);
+    ui->radio_light->setChecked(false);
+    ui->radio_light->setAutoExclusive(true);
+
+    __target_id = UA_NODEID_NULL;
+    __ua_client->setServerID(UA_NODEID_NULL);
+    __ua_client->setSubID(0);
+    __ua_client->get().disconnect();
+    this->close();
 }
 
 void ClientUI::initSignalSlots()
@@ -137,7 +196,7 @@ void ClientUI::initSignalSlots()
     connect(ui->button_scan, &QPushButton::clicked, this,
             [&]()
     {
-        __target_id = UA_NODEID_NULL;
+        monitorClear();
         ua::Client &client = __ua_client->get();
         // Clear
         ui->combo_box_device->clear();
@@ -170,8 +229,13 @@ void ClientUI::initSignalSlots()
     connect(ui->button_sub, &QPushButton::clicked, this,
             [&]()
     {
-        // 初始化设置
+        monitorClear();
         ua::Client &client = __ua_client->get();
+        // Client 重连
+        client.disconnect();
+        client.connect(__ua_client->getServerIP());
+        // 初始化设置
+
         ui->label_sub_msg->setStyleSheet("color: rgb(255, 0, 0)");
         if (__device_type == DeviceType::NONE)
         {
@@ -205,7 +269,8 @@ void ClientUI::initSignalSlots()
         // 根据设备类型执行对应变量的订阅请求
         if (__ua_client->getSubID() == 0U)
         {
-            __ua_client->createSubscription();
+            UA_UInt32 sub_id = __ua_client->get().createSubscription();
+            __ua_client->setSubID(sub_id);
             if (__ua_client->getSubID() == 0U)
             {
                 log(LogType::Error, "Failed to create subscription.");
@@ -217,12 +282,17 @@ void ClientUI::initSignalSlots()
 
         UA_NodeId ip_id = client.findNodeId(__target_id, 1, "IP");
         ua::Variable ip = client.readVariable(ip_id);
-        QString ip_txt = reinterpret_cast<char *>(ip.get().data);
+        QString ip_txt = reinterpret_cast<char *>(reinterpret_cast<UA_String *>(ip.get().data)->data);
         ui->edit_device_ip->setText(ip_txt);
+
+        UA_NodeId name_id = client.findNodeId(__target_id, 1, "Name");
+        ua::Variable name = client.readVariable(name_id);
+        QString name_txt = reinterpret_cast<char *>(reinterpret_cast<UA_String *>(name.get().data)->data);
+        ui->edit_device_name->setText(name_txt);
 
         UA_NodeId message_id = client.findNodeId(__target_id, 1, "Message");
         ua::Variable message = client.readVariable(message_id);
-        QString message_txt = reinterpret_cast<char *>(message.get().data);
+        QString message_txt = reinterpret_cast<char *>(reinterpret_cast<UA_String *>(message.get().data)->data);
         ui->edit_status_message->setText(message_txt);
 
         if (__device_type == DeviceType::CAMERA) // DeviceType::CAMERA
@@ -233,6 +303,12 @@ void ClientUI::initSignalSlots()
                 log(LogType::Error, "Failed to create monitor.");
                 return;
             }
+            qDebug("Success to create variable monitor.");
+            std::unique_lock<std::mutex> lk(__mutex);
+            __is_image_monitor = true;
+            __cond.notify_one();
+            label_image = ui->label_image;
+
             const auto &[exposure, gain, r_gain, g_gain, b_gain] = __ua_client->readCameraVariable(__target_id);
             ui->widget_exposure->setExposure(exposure);
             ui->widget_gain->setGain(gain);
@@ -269,24 +345,6 @@ void ClientUI::initSignalSlots()
         if (!ui->label_image->pixmap().isNull())
         {
             qDebug("label_image->pixmap() isn't null");
-        }
-    });
-
-    //! 断开连接
-    connect(ui->button_disconnect, &QPushButton::clicked, this,
-            [&]()
-    {
-        if (__connect != nullptr)
-        {
-            __devices_idx.clear();
-            __device_type = DeviceType::NONE;
-            ui->label_scan_msg->clear();
-            ui->label_sub_msg->clear();
-            ui->combo_box_device->clear();
-            __ua_client->setServerID(UA_NODEID_NULL);
-            __ua_client->get().disconnect();
-            this->close();
-            __connect->show();
         }
     });
 
@@ -402,4 +460,18 @@ void ClientUI::initSignalSlots()
         std::vector<ua::Variable> output;
         client.call(method_id, {3U, val}, output, __target_id);
     });
+
+    //! 断开连接
+    connect(ui->button_disconnect, &QPushButton::clicked, this,
+            [&]()
+    {
+        if (__connect != nullptr)
+        {
+            disconnectUI();
+            __connect->show();
+        }
+    });
+
+    //! 退出程序
+    connect(ui->button_exit, &QPushButton::clicked, this, [&](){ disconnectUI(); });
 }

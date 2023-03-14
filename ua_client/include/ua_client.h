@@ -10,6 +10,7 @@ class UaClient : public QObject
     Q_OBJECT
 
 private:
+    std::string __server_ip;
     ua::Client __client;
     UA_UInt32 __sub_id = 0U;
     UA_NodeId __server_id = UA_NODEID_NULL;
@@ -19,8 +20,10 @@ public:
 
     inline ua::Client &get() { return __client; }
     inline void setServerID(const UA_NodeId &server_id) { __server_id = server_id; }
+    inline void setServerIP(const std::string &server_ip) { __server_ip = server_ip; }
     inline const UA_NodeId &getServerID() const { return __server_id; }
-    inline void createSubscription() { __sub_id = __client.createSubscription(); }
+    inline const std::string &getServerIP() const { return __server_ip; }
+    inline void setSubID(UA_UInt32 id) { __sub_id = id; }
     inline UA_UInt32 getSubID() { return __sub_id; }
 
     /**

@@ -891,21 +891,5 @@ margin-left: 3px;
     </hint>
    </hints>
   </connection>
-  <connection>
-   <sender>button_exit</sender>
-   <signal>clicked()</signal>
-   <receiver>ClientUI</receiver>
-   <slot>close()</slot>
-   <hints>
-    <hint type="sourcelabel">
-     <x>94</x>
-     <y>689</y>
-    </hint>
-    <hint type="destinationlabel">
-     <x>554</x>
-     <y>362</y>
-    </hint>
-   </hints>
-  </connection>
  </connections>
 </ui>

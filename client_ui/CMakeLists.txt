@@ -30,5 +30,5 @@ target_include_directories(
 
 target_link_libraries(
     client_ui
-    PUBLIC ua_client font_icon
+    PUBLIC ua_client connect_ui font_icon
 )

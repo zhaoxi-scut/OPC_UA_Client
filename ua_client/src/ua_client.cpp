@@ -31,6 +31,7 @@ tuple<array<UA_Byte, 4>, array<UA_UInt16, 4>> UaClient::readLightControllerVaria
 
     UA_Variant lum_val = __client.readVariable(lum_id).get();
     UA_Variant del_val = __client.readVariable(del_id).get();
+
     UA_Byte *lum_data = reinterpret_cast<UA_Byte *>(lum_val.data);
     UA_UInt16 *del_data = reinterpret_cast<UA_UInt16 *>(del_val.data);
     size_t lum_size = lum_val.arrayLength;
