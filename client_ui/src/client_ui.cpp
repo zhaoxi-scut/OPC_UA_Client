@@ -23,10 +23,9 @@ ClientUI::ClientUI(client_ptr ua_client, QWidget *parent) :
         while (true)
         {
             std::unique_lock<std::mutex> lk(__mutex);
-            __cond.wait(lk,
-                        [this]()
+            __cond.wait(lk, [this]()
             {
-                return __is_image_monitor;
+                return __ua_client->get().isConnect();
             });
             __ua_client->get().runIterate(0);
         }
@@ -134,19 +133,12 @@ void imageChange(UA_Client *client, UA_UInt32 subId, void *subContext, UA_UInt32
 
 void ClientUI::monitorClear()
 {
-    std::unique_lock<std::mutex> lk(__mutex);
-    // 清除配置
-    __is_image_monitor = false;
     __target_id = UA_NODEID_NULL;
     __ua_client->setSubID(0);
 }
 
 void ClientUI::disconnectUI()
 {
-    {
-        std::unique_lock<std::mutex> lk(__mutex);
-        __is_image_monitor = false;
-    }
     __devices_idx.clear();
     __device_type = DeviceType::NONE;
     ui->label_scan_msg->clear();
@@ -154,15 +146,8 @@ void ClientUI::disconnectUI()
     ui->combo_box_device->clear();
     ui->label_image->setText("No Image");
 
-    ui->widget_delay_ch1->setValue(1);
-    ui->widget_delay_ch2->setValue(1);
-    ui->widget_delay_ch3->setValue(1);
-    ui->widget_delay_ch4->setValue(1);
-    ui->widget_exposure->setExposure(0);
-    ui->widget_gain->setGain(0);
-    ui->widget_r_gain->setGain(0);
-    ui->widget_g_gain->setGain(0);
-    ui->widget_b_gain->setGain(0);
+    ui->group_box_image->setDisabled(true);
+    ui->group_box_light->setDisabled(true);
 
     ui->radio_camera->setAutoExclusive(false);
     ui->radio_camera->setChecked(false);
@@ -181,21 +166,19 @@ void ClientUI::disconnectUI()
 void ClientUI::initSignalSlots()
 {
     //! 设备选取按钮
-    connect(ui->radio_camera, &QRadioButton::clicked, this,
-            [this]()
+    connect(ui->radio_camera, &QRadioButton::clicked, this, [this]()
     {
         __device_type = DeviceType::CAMERA;
     });
-    connect(ui->radio_light, &QRadioButton::clicked, this,
-            [this]()
+    connect(ui->radio_light, &QRadioButton::clicked, this, [this]()
     {
         __device_type = DeviceType::LIGHT;
     });
 
     //! 扫描
-    connect(ui->button_scan, &QPushButton::clicked, this,
-            [&]()
+    connect(ui->button_scan, &QPushButton::clicked, this, [this]()
     {
+        std::unique_lock<std::mutex> lk(__mutex);
         monitorClear();
         ua::Client &client = __ua_client->get();
         // Clear
@@ -226,16 +209,15 @@ void ClientUI::initSignalSlots()
     });
 
     //! 订阅按钮
-    connect(ui->button_sub, &QPushButton::clicked, this,
-            [&]()
+    connect(ui->button_sub, &QPushButton::clicked, this, [this]()
     {
+        std::unique_lock<std::mutex> lk(__mutex);
         monitorClear();
         ua::Client &client = __ua_client->get();
         // Client 重连
         client.disconnect();
         client.connect(__ua_client->getServerIP());
         // 初始化设置
-
         ui->label_sub_msg->setStyleSheet("color: rgb(255, 0, 0)");
         if (__device_type == DeviceType::NONE)
         {
@@ -304,12 +286,12 @@ void ClientUI::initSignalSlots()
                 return;
             }
             qDebug("Success to create variable monitor.");
-            std::unique_lock<std::mutex> lk(__mutex);
-            __is_image_monitor = true;
+
             __cond.notify_one();
             label_image = ui->label_image;
-
             const auto &[exposure, gain, r_gain, g_gain, b_gain] = __ua_client->readCameraVariable(__target_id);
+
+            lk.unlock();
             ui->widget_exposure->setExposure(exposure);
             ui->widget_gain->setGain(gain);
             ui->widget_r_gain->setGain(r_gain);
@@ -318,6 +300,7 @@ void ClientUI::initSignalSlots()
         }
         else // DeviceType::LIGHT
         {
+            lk.unlock();
             const auto &[luminance, delay] = __ua_client->readLightControllerVariable(__target_id);
             ui->widget_light_ch1->setValue(luminance[0]);
             ui->widget_light_ch2->setValue(luminance[1]);
@@ -331,16 +314,14 @@ void ClientUI::initSignalSlots()
     });
 
     //! 清空图像
-    connect(ui->button_image_clear, &QPushButton::clicked, this,
-            [&]()
+    connect(ui->button_image_clear, &QPushButton::clicked, this, [this]()
     {
         ui->label_image->clear();
         ui->label_image->setText("No Image");
     });
 
     //! 导出图像
-    connect(ui->button_image_export, &QPushButton::clicked, this,
-            [&]()
+    connect(ui->button_image_export, &QPushButton::clicked, this, [this]()
     {
         if (!ui->label_image->pixmap().isNull())
         {
@@ -350,111 +331,111 @@ void ClientUI::initSignalSlots()
 
     //! 滑动条触发服务器数据更新
     // SetExposure
-    connect(ui->widget_exposure, &ExposureSpinSlider::valueChanged, this,
-            [this](uint16_t val)
+    connect(ui->widget_exposure, &ExposureSpinSlider::valueChanged, this, [this](uint16_t val)
     {
+        std::unique_lock<std::mutex> lk(__mutex);
         ua::Client &client = __ua_client->get();
         UA_NodeId method_id = client.findNodeId(__target_id, 1, "SetExposure");
         std::vector<ua::Variable> output;
         client.call(method_id, {val}, output, __target_id);
     });
     // SetGain
-    connect(ui->widget_gain, &GainSpinSlider::valueChanged, this,
-            [this](double val)
+    connect(ui->widget_gain, &GainSpinSlider::valueChanged, this, [this](double val)
     {
+        std::unique_lock<std::mutex> lk(__mutex);
         ua::Client &client = __ua_client->get();
         UA_NodeId method_id = client.findNodeId(__target_id, 1, "SetGain");
         std::vector<ua::Variable> output;
         client.call(method_id, {val}, output, __target_id);
     });
     // SetRedGain
-    connect(ui->widget_r_gain, &GainSpinSlider::valueChanged, this,
-            [this](double val)
+    connect(ui->widget_r_gain, &GainSpinSlider::valueChanged, this, [this](double val)
     {
+        std::unique_lock<std::mutex> lk(__mutex);
         ua::Client &client = __ua_client->get();
         UA_NodeId method_id = client.findNodeId(__target_id, 1, "SetRedGain");
         std::vector<ua::Variable> output;
         client.call(method_id, {val}, output, __target_id);
     });
     // SetGreenGain
-    connect(ui->widget_g_gain, &GainSpinSlider::valueChanged, this,
-            [this](double val)
+    connect(ui->widget_g_gain, &GainSpinSlider::valueChanged, this, [this](double val)
     {
+        std::unique_lock<std::mutex> lk(__mutex);
         ua::Client &client = __ua_client->get();
         UA_NodeId method_id = client.findNodeId(__target_id, 1, "SetGreenGain");
         std::vector<ua::Variable> output;
         client.call(method_id, {val}, output, __target_id);
     });
     // SetBlueGain
-    connect(ui->widget_b_gain, &GainSpinSlider::valueChanged, this,
-            [this](double val)
+    connect(ui->widget_b_gain, &GainSpinSlider::valueChanged, this, [this](double val)
     {
+        std::unique_lock<std::mutex> lk(__mutex);
         ua::Client &client = __ua_client->get();
         UA_NodeId method_id = client.findNodeId(__target_id, 1, "SetBlueGain");
         std::vector<ua::Variable> output;
         client.call(method_id, {val}, output, __target_id);
     });
     // SetLuminance
-    connect(ui->widget_light_ch1, &LightSpinSlider::valueChanged, this,
-            [this](uint8_t val)
+    connect(ui->widget_light_ch1, &LightSpinSlider::valueChanged, this, [this](uint8_t val)
     {
+        std::unique_lock<std::mutex> lk(__mutex);
         ua::Client &client = __ua_client->get();
         UA_NodeId method_id = client.findNodeId(__target_id, 1, "SetLuminance");
         std::vector<ua::Variable> output;
         client.call(method_id, {0U, val}, output, __target_id);
     });
-    connect(ui->widget_light_ch2, &LightSpinSlider::valueChanged, this,
-            [this](uint8_t val)
+    connect(ui->widget_light_ch2, &LightSpinSlider::valueChanged, this, [this](uint8_t val)
     {
+        std::unique_lock<std::mutex> lk(__mutex);
         ua::Client &client = __ua_client->get();
         UA_NodeId method_id = client.findNodeId(__target_id, 1, "SetLuminance");
         std::vector<ua::Variable> output;
         client.call(method_id, {1U, val}, output, __target_id);
     });
-    connect(ui->widget_light_ch3, &LightSpinSlider::valueChanged, this,
-            [this](uint8_t val)
+    connect(ui->widget_light_ch3, &LightSpinSlider::valueChanged, this, [this](uint8_t val)
     {
+        std::unique_lock<std::mutex> lk(__mutex);
         ua::Client &client = __ua_client->get();
         UA_NodeId method_id = client.findNodeId(__target_id, 1, "SetLuminance");
         std::vector<ua::Variable> output;
         client.call(method_id, {2U, val}, output, __target_id);
     });
-    connect(ui->widget_light_ch4, &LightSpinSlider::valueChanged, this,
-            [this](uint8_t val)
+    connect(ui->widget_light_ch4, &LightSpinSlider::valueChanged, this, [this](uint8_t val)
     {
+        std::unique_lock<std::mutex> lk(__mutex);
         ua::Client &client = __ua_client->get();
         UA_NodeId method_id = client.findNodeId(__target_id, 1, "SetLuminance");
         std::vector<ua::Variable> output;
         client.call(method_id, {3U, val}, output, __target_id);
     });
     // SetDelay
-    connect(ui->widget_delay_ch1, &DelaySpinSlider::valueChanged, this,
-            [this](uint16_t val)
+    connect(ui->widget_delay_ch1, &DelaySpinSlider::valueChanged, this, [this](uint16_t val)
     {
+        std::unique_lock<std::mutex> lk(__mutex);
         ua::Client &client = __ua_client->get();
         UA_NodeId method_id = client.findNodeId(__target_id, 1, "SetDelay");
         std::vector<ua::Variable> output;
         client.call(method_id, {0U, val}, output, __target_id);
     });
-    connect(ui->widget_delay_ch2, &DelaySpinSlider::valueChanged, this,
-            [this](uint16_t val)
+    connect(ui->widget_delay_ch2, &DelaySpinSlider::valueChanged, this, [this](uint16_t val)
     {
+        std::unique_lock<std::mutex> lk(__mutex);
         ua::Client &client = __ua_client->get();
         UA_NodeId method_id = client.findNodeId(__target_id, 1, "SetDelay");
         std::vector<ua::Variable> output;
         client.call(method_id, {1U, val}, output, __target_id);
     });
-    connect(ui->widget_delay_ch3, &DelaySpinSlider::valueChanged, this,
-            [this](uint16_t val)
+    connect(ui->widget_delay_ch3, &DelaySpinSlider::valueChanged, this, [this](uint16_t val)
     {
+        std::unique_lock<std::mutex> lk(__mutex);
         ua::Client &client = __ua_client->get();
         UA_NodeId method_id = client.findNodeId(__target_id, 1, "SetDelay");
         std::vector<ua::Variable> output;
         client.call(method_id, {2U, val}, output, __target_id);
     });
-    connect(ui->widget_delay_ch4, &DelaySpinSlider::valueChanged, this,
-            [this](uint16_t val)
+    connect(ui->widget_delay_ch4, &DelaySpinSlider::valueChanged, this, [this](uint16_t val)
     {
+        std::unique_lock<std::mutex> lk(__mutex);
         ua::Client &client = __ua_client->get();
         UA_NodeId method_id = client.findNodeId(__target_id, 1, "SetDelay");
         std::vector<ua::Variable> output;
@@ -462,16 +443,20 @@ void ClientUI::initSignalSlots()
     });
 
     //! 断开连接
-    connect(ui->button_disconnect, &QPushButton::clicked, this,
-            [&]()
+    connect(ui->button_disconnect, &QPushButton::clicked, this, [this]()
     {
         if (__connect != nullptr)
         {
+            std::unique_lock<std::mutex> lk(__mutex);
             disconnectUI();
             __connect->show();
         }
     });
 
     //! 退出程序
-    connect(ui->button_exit, &QPushButton::clicked, this, [&](){ disconnectUI(); });
+    connect(ui->button_exit, &QPushButton::clicked, this, [this]()
+    {
+        std::unique_lock<std::mutex> lk(__mutex);
+        disconnectUI();
+    });
 }

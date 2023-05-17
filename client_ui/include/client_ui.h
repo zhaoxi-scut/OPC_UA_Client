@@ -48,8 +48,6 @@ private:
     //! ConnectUI 指针
     ConnectUI *__connect = nullptr;
 
-    //! 图像是否已添加监视
-    bool __is_image_monitor = false;
     //! 互斥锁
     std::mutex __mutex;
     //! 条件变量

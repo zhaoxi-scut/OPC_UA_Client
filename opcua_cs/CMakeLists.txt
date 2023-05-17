@@ -6,12 +6,10 @@ set(
     include/asmpro/opcua_cs/argument.hpp
     include/asmpro/opcua_cs/client.hpp
     include/asmpro/opcua_cs/object.hpp
-    include/asmpro/opcua_cs/server.hpp
     include/asmpro/opcua_cs/ua_utility.hpp
     include/asmpro/opcua_cs/variable.hpp
     src/argument.cpp
     src/client.cpp
-    src/server.cpp
 )
 
 add_library(

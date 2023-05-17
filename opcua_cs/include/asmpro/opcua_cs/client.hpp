@@ -40,10 +40,15 @@ public:
         UA_Client_delete(__client);
     }
 
-    /**
-     * @brief 断开服务器 - 客户端连接
-     */
-    inline void disconnect() { UA_Client_disconnect(__client), __is_connect = UA_FALSE; }
+    //! 是否已连接
+    inline UA_Boolean isConnect() { return __is_connect; }
+
+    //! 断开服务器 - 客户端连接
+    inline void disconnect()
+    {
+        UA_Client_disconnect(__client);
+        __is_connect = UA_FALSE;
+    }
 
     /**
      * @brief 监听网络并在后台处理到达的异步响应。还完成了内部管理、SecureChannels 的更新和订阅管理。

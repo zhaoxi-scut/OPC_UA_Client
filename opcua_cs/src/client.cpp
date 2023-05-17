@@ -29,8 +29,9 @@ Client::Client()
 UA_Boolean Client::connect(const string &address, const string &username, const string &password)
 {
     if (username.empty() || password.empty())
-        return UA_Client_connect(__client, address.c_str()) == UA_STATUSCODE_GOOD;
-    __is_connect = UA_Client_connectUsername(__client, address.c_str(), username.c_str(), password.c_str()) == UA_STATUSCODE_GOOD;
+        __is_connect = UA_Client_connect(__client, address.c_str()) == UA_STATUSCODE_GOOD;
+    else
+        __is_connect = UA_Client_connectUsername(__client, address.c_str(), username.c_str(), password.c_str()) == UA_STATUSCODE_GOOD;
     return __is_connect;
 }
 
